@@ -1,5 +1,7 @@
 package com.fengyang;
 
+import com.fengyang.service.OrderService;
+import com.fengyang.service.UserInterface;
 import com.fengyang.service.UserService;
 import com.spring.FengyangApplicationContext;
 
@@ -12,7 +14,7 @@ public class Test {
 
     public static void main(String[] args) {
         FengyangApplicationContext applicationContext = new FengyangApplicationContext(AppConfig.class);
-        UserService userService = (UserService)applicationContext.getBean("userService");
+        UserInterface userService = (UserInterface)applicationContext.getBean("userService");
         userService.test();
     }
 

@@ -1,9 +1,13 @@
 package com.spring;
 
+import java.beans.Introspector;
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -16,6 +20,7 @@ public class FengyangApplicationContext {
     private Class configClass;
     private Map<String, BeanDefinition> beanDefinitionMap = new HashMap<>();
     private Map<String, Object> singletonObjects = new HashMap<>();
+    private List<BeanPostProcessor> beanPostProcessorList = new ArrayList<>();
 
     public FengyangApplicationContext(Class configClass) {
         this.configClass = configClass;
@@ -35,6 +40,30 @@ public class FengyangApplicationContext {
         Object bean = null;
         try {
             bean = clazz.getConstructor().newInstance();
+
+            for(Field field : clazz.getDeclaredFields()) {
+                if(field.isAnnotationPresent(Autowired.class)) {
+                    field.setAccessible(true);
+                    field.set(bean, getBean(field.getName()));
+                }
+            }
+
+            for(BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                bean = beanPostProcessor.postProcessBeforeInitialization(bean, beanName);
+            }
+
+            if(bean instanceof BeanNameAware) {
+                ((BeanNameAware)bean).setBeanName(beanName);
+            }
+
+            if(bean instanceof InitializingBean) {
+                ((InitializingBean)bean).afterPropertiesSet();
+            }
+
+            for(BeanPostProcessor beanPostProcessor : beanPostProcessorList) {
+                 bean = beanPostProcessor.postProcessAfterInitialization(bean, beanName);
+            }
+
         } catch (InstantiationException e) {
             e.printStackTrace();
         } catch (IllegalAccessException e) {
@@ -53,7 +82,12 @@ public class FengyangApplicationContext {
         }
         BeanDefinition beanDefinition = beanDefinitionMap.get(beanName);
         if(beanDefinition.getScope().equals("singleton")) {
-            return singletonObjects.get(beanName);
+            Object bean = singletonObjects.get(beanName);
+            if(bean == null) {
+                bean = createBean(beanName, beanDefinition);
+                singletonObjects.put(beanName, bean);
+            }
+            return bean;
         } else {
             return createBean(beanName, beanDefinition);
         }
@@ -64,7 +98,6 @@ public class FengyangApplicationContext {
             ComponentScan componentScanAnnotation = (ComponentScan) configClass.getAnnotation(ComponentScan.class);
             String component = componentScanAnnotation.value();
             component = component.replace(".", "/");
-            System.out.println("component=" + component);
             ClassLoader classLoader = FengyangApplicationContext.class.getClassLoader();
             URL resource = classLoader.getResource(component);
             File file = new File(resource.getFile());
@@ -73,14 +106,20 @@ public class FengyangApplicationContext {
                     String absolutePath = f.getAbsolutePath();
                     absolutePath = absolutePath.substring(absolutePath.indexOf("com"), absolutePath.indexOf(".class"));
                     absolutePath = absolutePath.replace("\\", ".");
-                    System.out.println("absolutePath=" + absolutePath);
                     try {
                         Class<?> clazz = classLoader.loadClass(absolutePath);
                         if(clazz.isAnnotationPresent(Component.class)) {
-                            System.out.println("clazz=" + clazz);
+
+                            if(BeanPostProcessor.class.isAssignableFrom(clazz)) {
+                                BeanPostProcessor beanPostProcessor = (BeanPostProcessor) clazz.getConstructor().newInstance();
+                                beanPostProcessorList.add(beanPostProcessor);
+                            }
 
                             Component componentAnnotation = clazz.getAnnotation(Component.class);
                             String beanName = componentAnnotation.value();
+                            if("".equals(beanName)) {
+                                beanName = Introspector.decapitalize(clazz.getSimpleName());
+                            }
 
                             BeanDefinition beanDefinition = new BeanDefinition();
                             beanDefinition.setClazz(clazz);
@@ -94,6 +133,14 @@ public class FengyangApplicationContext {
                             beanDefinitionMap.put(beanName, beanDefinition);
                         }
                     } catch (ClassNotFoundException e) {
+                        e.printStackTrace();
+                    } catch (InstantiationException e) {
+                        e.printStackTrace();
+                    } catch (InvocationTargetException e) {
+                        e.printStackTrace();
+                    } catch (NoSuchMethodException e) {
+                        e.printStackTrace();
+                    } catch (IllegalAccessException e) {
                         e.printStackTrace();
                     }
                 }
